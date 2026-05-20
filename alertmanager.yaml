@@ -1,0 +1,45 @@
+global:
+  resolve_timeout: 1m
+  slack_api_url: <your-slack-webhook-url>
+
+route:
+  receiver: 'gmail-slack-notifications'
+
+receivers:
+- name: 'gmail-slack-notifications'
+  email_configs:
+  - to: <your-to-email>
+    from: <your-from-email>
+    smarthost: smtp.gmail.com:587
+    auth_username: <your-from-email>
+    auth_identity: <your-from-email>
+    auth_password: <your-app-password>
+    send_resolved: true
+    headers:
+      Subject: '{{ if eq .Status "firing" }}🚨 ALERT: {{ .CommonLabels.alertname }}{{ else }}✅ RESOLVED: {{ .CommonLabels.alertname }}{{ end }}'
+  slack_configs:
+    - channel: '#daws-88s-discussions'
+      send_resolved: true
+      icon_url: https://avatars3.githubusercontent.com/u/3380462
+      title: |-
+        [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }} for {{ .CommonLabels.job }}
+        {{- if gt (len .CommonLabels) (len .GroupLabels) -}}
+          {{" "}}(
+          {{- with .CommonLabels.Remove .GroupLabels.Names }}
+            {{- range $index, $label := .SortedPairs -}}
+              {{ if $index }}, {{ end }}
+              {{- $label.Name }}="{{ $label.Value -}}"
+            {{- end }}
+          {{- end -}}
+          )
+        {{- end }}
+        text: >-
+        {{ range .Alerts -}}
+        *Alert:* {{ .Annotations.title }}{{ if .Labels.severity }} - `{{ .Labels.severity }}`{{ end }}
+
+        *Description:* {{ .Annotations.description }}
+
+        *Details:*
+          {{ range .Labels.SortedPairs }} • *{{ .Name }}:* `{{ .Value }}`
+          {{ end }}
+        {{ end }}

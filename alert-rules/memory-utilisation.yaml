@@ -1,0 +1,14 @@
+
+groups:
+- name: high-memory-usage
+  labels:
+    team: monitoring
+  rules:
+  - alert: HighMemoryUsage
+    expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 30
+    for: 2m # wait for 2min before raising alert
+    keep_firing_for: 5m
+    labels:
+      severity: Critical
+    annotations:
+      summary: High CPU Usage in server {{ $labels.app }}

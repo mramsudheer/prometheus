@@ -1,0 +1,11 @@
+[Unit]
+Description=Node Exporter
+Documentation=https://prometheus.io/docs/introduction/overview/
+After=network-online.target
+
+[Service]
+Restart=on-failure
+ExecStart=/opt/node_exporter/node_exporter
+
+[Install]
+WantedBy=multi-user.target

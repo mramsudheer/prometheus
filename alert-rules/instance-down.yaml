@@ -1,0 +1,13 @@
+groups:
+- name: instance-down
+  labels:
+    team: monitoring
+  rules:
+  - alert: InstanceIsDown
+    expr: up != 1
+    for: 2m # wait for 2min before raising alert
+    keep_firing_for: 5m
+    labels:
+      severity: Critical
+    annotations:
+      summary: Instance {{ $labels.app }} down

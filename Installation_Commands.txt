@@ -1,0 +1,290 @@
+====================================== PROMETHEUS ==============================================
+CREATE PROMETHEUS MASTER
+sudo su -
+cd /opt
+sudo wget https://github.com/prometheus/prometheus/releases/download/v3.11.3/prometheus-3.11.3.linux-amd64.tar.gz
+tar -xzvf prometheus-3.11.3.linux-amd64.tar.gz
+
+SoftLink Creation(In feature if 4.0.0 release happen we just point this softlink to 4.0.0)
+ln -s prometheus-3.11.3.linux-amd64 prometheus
+ls -l
+which yum
+ls -l /usr/bin/yum
+cd prometheus
+
+useradd prometheus
+
+cd ..
+chown -R prometheus:prometheus prometheus
+
+CREATE SYSTMCTL SERVICE
+vi /etc/systemd/system/prometheus.service
+
+[Unit]
+Description=Prometheus Server
+Documentation=https://prometheus.io/docs/introduction/overview/
+After=network-online.target
+
+[Service]
+User=prometheus
+Group=prometheus
+Restart=on-failure
+ExecStart=/opt/prometheus/prometheus --config.file=/opt/prometheus/prometheus.yml
+
+[Install]
+WantedBy=multi-user.target
+
+sudo systemctl daemon-reload
+sudo systemctl start prometheus.service
+sudo systemctl enable prometheus.service
+sudo systemctl status prometheus.service
+
+To view the logs of Prometheus:
+sudo journalctl -u prometheus.service -f
+
+netstat -lntp
+<publicip>:9090
+
+CREATE PROMETHEUS NODE - New EC2 Instance
+===========================
+sudo su -
+cd opt
+wget https://github.com/prometheus/node_exporter/releases/download/v1.11.1/node_exporter-1.11.1.linux-amd64.tar.gz
+tar -xzf node_exporter-1.11.1.linux-amd64.tar.gz
+ln -s node_exporter-1.11.1.linux-amd64 node_exporter
+
+
+CREATE SYSTMCTL SERVICE
+vi /etc/systemd/system/node_exporter.service
+
+Unit]
+Description=Node Exporter
+Documentation=https://prometheus.io/docs/introduction/overview/
+After=network-online.target
+
+[Service]
+Restart=on-failure
+ExecStart=/opt/node_exporter/node_exporter
+ExecStart=/opt/node_exporter/node_exporter --config.file=/opt/node_exporter/node_exporter.yaml
+
+[Install]
+WantedBy=multi-user.target
+
+sudo systemctl daemon-reload
+sudo systemctl start node_exporter.service
+sudo systemctl enable node_exporter.service
+sudo systemctl status node_exporter.service
+netstat -lntp
+
+NOW CONNECT PROMETHEUS TO NODE EXPORTER
+In Master server
+cat /opt/prometheus/prometheus.yaml
+
+scrape_configs:
+	Create a new job
+	- job_name: "node-1"
+		static_configs:
+			- targets: ["your node public ip"
+			labels: 
+			app: "Node-1"
+
+systemctl restart prometheus
+
+INSTEAD OF DOING CHANGES MANUALLY TO ADD THE NODE TO MASTER AUTOMATICALLY
+=================================================================
+
+Create a Policy
+	service -> ec2 -> Access level->List -> Describeinstances
+	Policy Name: PrometeousEC2SD
+Create IAM role
+	trusted entity type -> AWS service -> EC2 -> permission policies(Add abv policy)
+	Role name: PrometeousEC2SD
+Now attach this role to master prometheous master server Actions->security->Modify IAM role
+------------------
+CREATING ALERTS
+In Master server we need to enable
+Create /opt/prometheus/alert-rules
+vi instance-down.yaml
+
+# we need to enable alert
+vi /opt/prometheus/prometheus.yaml
+rules_files:
+  - "alert-rules/*yaml
+---------------------------------
+CONFIGURING ALERT MANAGER
+cd /opt
+wget https://github.com/prometheus/alertmanager/releases/download/v0.32.1/alertmanager-0.32.1.linux-amd64.tar.gz
+tar -xzf alertmanager-0.32.1.linux-amd64.tar.gz
+lm -s alertmanager-0.32.1.linux-amd64 alertmanager
+
+# Install msmtp
+sudo dnf install msmtp -y
+
+# Create your app-password in Google
+	https://myaccount.google.com/apppasswords
+		or
+	in google, search for gmail app password
+	Create one for your gmail account
+
+# Create Global Config File
+sudo vi /etc/msmtprc
+defaults
+auth           on
+tls            on
+tls_trust_file /etc/ssl/certs/ca-bundle.crt
+logfile        /var/log/msmtp.log
+
+account        gmail
+host           smtp.gmail.com
+port           587
+from           your_email@gmail.com -> Your gmail
+user           your_email@gmail.com -> Your gmail
+password       your_app_password -> Abv password without spaces
+
+account default : gmail
+
+# Set Secure, World-Readable Permissions
+sudo chmod 644 /etc/msmtprc
+
+# Create Logfile
+sudo touch /var/log/msmtp.log
+sudo chmod 666 /var/log/msmtp.log
+
+# Test as Any User
+{
+echo "To: $TO_ADDRESS"
+echo "Subject: $SUBJECT"
+echo "Content-Type: text/html"
+echo ""
+echo "$EMAIL_BODY"
+} | msmtp "$TO_ADDRESS"
+
+--------------
+cd alertmanager
+vi alertmanager.yaml
+
+global:
+  # Time to wait before marking an alert as resolved
+  resolve_timeout: 5m
+  
+route:
+  receiver: 'gmail-notifications'
+
+receivers:
+- name: 'gmail-notifications'
+  email_configs:
+  - to: mramsudheer@gmail.com
+    from: mramsudheer@gmail.com
+    smarthost: smtp.gmail.com:587
+    auth_username: mramsudheer@gmail.com
+    auth_identity: mramsudheer@gmail.com
+    auth_password: <see the abv>
+    send_resolved:true
+
+    send_resolved: true # Ensures notification when alert resolves
+    headers:
+      subject: '{{ if eq .Status "firing" }} Alert: {{ .CommonLabels.alertname }}{{ else }}RESOLVED: {{ .CommonLabels.alertname }}{{ end }}'
+
+# CREATE SYSTMCTL SERVICE
+vi /etc/systemd/system/alertmanager.service
+
+Unit]
+Description=Alert Manager
+Documentation=https://prometheus.io/docs/introduction/overview/
+After=network-online.target
+
+[Service]
+Restart=on-failure
+ExecStart=/opt/alertmanager/alertmanager --config.file=/opt/alertmanager/alertmanager.yaml
+
+[Install]
+WantedBy=multi-user.target
+
+sudo systemctl daemon-reload
+sudo systemctl start alertmanager.service
+sudo systemctl enable alertmanager.service
+sudo systemctl status alertmanager.service
+netstat -lntp
+
+# we need to enable alert
+vi /etc/systemd/system/alertmanager.service
+alerting:
+  alertingmanagers:
+    - static_configs:
+        - targets:
+          - "localhost:9093"
+
+#vi /opt/prometheus/prometheus.yaml
+
+
+-----------------------------------------------
+
+Create a secondary node an EC2 instance with tag 'Monitoring' 'true'
+In Master server
+cat /opt/prometheus/prometheus.yaml
+scrape_configs:
+  - job_name: 'ec2_sd'
+    ec2_sd_configs:
+      - region: us-east-1
+        port: 9100  # The port your exporter (e.g., node_exporter) is listening on
+        filters:
+          - name: "tag:Monitoring"
+            values: ['true']
+          - name: "instance-state-name"
+            values: ['running']
+    
+    relabel_configs:
+      # Use the EC2 'Name' tag as the 'instance' label in Prometheus
+      - source_labels: [__meta_ec2_instance_id]
+        target_label: instance_id
+      
+      # Use the private IP for scraping (default behavior, but can be explicitly set)
+      - source_labels: [__meta_ec2_tag_Name]
+        target_label: app
+      - source_labels: [__meta_ec2_private_ip]
+        target_label: private_ip
+========================================================
+INSTALL GRAFANA on PROMETHEUS MASTER SERVER
+curl -o gpg.key https://rpm.grafana.com/gpg.key
+
+sudo rpm --import gpg.key
+
+vi /etc/yum.repos.d/garafana.repo
+[grafana]
+name=grafana
+baseurl=https://rpm.grafana.com
+repo_gpgcheck=1
+enabled=1
+gpgcheck=1
+gpgkey=https://rpm.grafana.com/gpg.key
+sslverify=1
+sslcacert=/etc/pki/tls/certs/ca-bundle.crt
+ 
+sudo dnf install grafana -y
+
+sudo systemctl daemon-reload
+sudo systemctl start grafana-server
+sudo systemctl status grafana-server
+<publicip>:30000
+	user:admin
+	p/w:admin
+	Connections -> Add new connection -> Data sources -> Add data source -> Prometheus
+		Connection:
+ 			Prometheus Server URL:http://localhost:9090
+	save and test
+	Create Dashboard -> create a dasboard, then -> click on pannel, title: up-> configure visualization
+		click on code -> type UP and press Run button then select the required option Lagend({{app}})
+
+IMPORT A DASHBOARD
+in google search for dashboard id(node exporter open source dashboard-1860)
+In your dashboard, New -> Import -> 
+
+chown -R ec2-user:ec2-user /root/actions-runner
+mv /root/actions-runner /home/ec2-user/
+
+api.slack.com/apps
+create new app -> From scratch -> App name:github-actions-sudheer -> Pick a workspace
+	Features -> incoming Webhooks - on -> Add New webhook -> 
+	Workspace(Will come automatically) -> Channel for webhook:<select slack channel > and click on Allow
+	Copy Webhook URL and create 'secret' SLACK_WEBHOOK_URL
+	Test using -Sample curl request to post to a channel: -> Try this by executing this url in ec2 instance. You will c the msg in slack channel
